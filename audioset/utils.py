@@ -18,6 +18,8 @@ from ParNetAttention import ParNetAttention
 from dynamic_convolutions import Dynamic_conv2d
 import os
 
+from model.passt.passt import PaSST
+
 __author__ = "Andrew Koh Jin Jie, Yan Zhen"
 __credits__ = ["Prof Chng Eng Siong", "Yan Zhen",
                "Tanmay Khandelwal", "Anushka Jain"]
@@ -61,7 +63,8 @@ def getLabelFromFilename(file_name: str) -> int:
 
 class AudioDataset(Dataset):
 
-    def __init__(self, workspace, df, feature_type=feature_type, perm=permutation, spec_transform=None, image_transform=None, resize=num_frames, sample_rate=sample_rate):
+    def __init__(self, workspace, df, feature_type=feature_type, perm=permutation, spec_transform=None, image_transform=None, resize=num_frames, sample_rate=sample_rate,
+                    usage:str='train'):
 
         self.workspace = workspace
         self.df = df
@@ -74,13 +77,14 @@ class AudioDataset(Dataset):
         self.resize = ResizeSpectrogram(frames=resize)
         self.pil = transforms.ToPILImage()
 
-        self.channel_means = np.load('{}/data/statistics/{}/channel_means_{}_{}.npy'.format(
-            workspace, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
-        self.channel_stds = np.load('{}/data/statistics/{}/channel_stds_{}_{}.npy'.format(
-            workspace, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
+        self.channel_means = np.load('{}/{}_labels/data/statistics/{}/channel_means_{}_{}.npy'.format(
+            workspace, usage, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
+        self.channel_stds = np.load('{}/{}_labels/data/statistics/{}/channel_stds_{}_{}.npy'.format(
+            workspace, usage, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
 
         self.channel_means = self.channel_means.reshape(1, -1, 1)
         self.channel_stds = self.channel_stds.reshape(1, -1, 1)
+        self.usage = usage
 
     def __len__(self):
         return len(self.filenames)
@@ -89,8 +93,11 @@ class AudioDataset(Dataset):
         file_name = getFileNameFromDf(self.df, idx)
         labels = getLabelFromFilename(file_name)
 
+        # sample = np.load(
+        #     f"{self.workspace}/data/{self.feature_type}/audio_{getSampleRateString(self.sample_rate)}/{file_name}.wav.npy")
+
         sample = np.load(
-            f"{self.workspace}/data/{self.feature_type}/audio_{getSampleRateString(self.sample_rate)}/{file_name}.wav.npy")
+            f"{self.workspace}/{self.usage}_labels/{file_name}.wav.npy")
 
         if self.resize:
             sample = self.resize(sample)
@@ -318,6 +325,12 @@ class Task5Model(nn.Module):
                 nn.Linear(2048, 512), nn.ReLU(), nn.BatchNorm1d(512),
                 nn.Linear(512, 256), nn.ReLU(), nn.BatchNorm1d(256),
                 nn.Linear(256, num_classes))
+        if model_arch=="passt":
+            self.passt = PaSST(
+                num_classes=num_classes,
+                img_size = (128,638),
+                u_patchout=40)
+
 
     def forward(self, x):
         if self.model_arch == 'mobilenetv2':
@@ -336,6 +349,10 @@ class Task5Model(nn.Module):
             x = torch.squeeze(x, 1)  # -> (batch_size, num_frames, 64)
             x = self.encoder(x)
             x = self.pann_head(x)
+        
+        elif self.model_arch=="passt":
+            x = self.passt(x)[0]
+            return x
         # x-> (batch_size, 1280/512, H, W)
         # x = x.max(dim=-1)[0].max(dim=-1)[0] # change it to mean
         if self.use_cbam:
