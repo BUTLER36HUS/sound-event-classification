@@ -19,8 +19,9 @@ __status__ = "Development"
 
 def run(workspace, feature_type, num_bins, perm):
     if use_resampled_data:
-        file_list = np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
-                                                                          feature_type, getSampleRateString(sample_rate))))
+        # file_list = np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
+        #                                                                   feature_type, getSampleRateString(sample_rate))))
+        file_list = np.unique(glob('{}/*.wav.npy'.format(workspace)))
     else:
         #    if '8k' in feature_type:
         #        actual_files = glob('{}/{}/*.wav.npy'.format(workspace, feature_type))

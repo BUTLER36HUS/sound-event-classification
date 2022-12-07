@@ -30,12 +30,20 @@ for i, target in enumerate(target_names):
 def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_name):
 
     if use_resampled_data:
-        file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
-                                                                                                             feature_type, getSampleRateString(sample_rate))))]
-        train_list, test_list = sklearn.model_selection.train_test_split(
-            file_list, train_size=0.8, random_state=seed)
-        train_list, val_list = sklearn.model_selection.train_test_split(
-            train_list, train_size=0.9, random_state=seed)
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
+        #                                                                                                      feature_type, getSampleRateString(sample_rate))))]
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/*.wav.npy'.format(workspace,
+        #                                                                                                 feature_type, getSampleRateString(sample_rate))))]
+        train_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/train_labels/*.wav.npy'.format(workspace,
+                                                                                                        feature_type, getSampleRateString(sample_rate))))]    
+        val_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/val_labels/*.wav.npy'.format(workspace,
+                                                                                                feature_type, getSampleRateString(sample_rate))))]
+        test_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/test_labels/*.wav.npy'.format(workspace,
+                                                                                                        feature_type, getSampleRateString(sample_rate))))]  
+        # train_list, test_list = sklearn.model_selection.train_test_split(
+        #     file_list, train_size=0.8, random_state=seed)
+        # train_list, val_list = sklearn.model_selection.train_test_split(
+        #     train_list, train_size=0.9, random_state=seed)
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
         test_df = pd.DataFrame(test_list)
@@ -51,11 +59,11 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
 
     # Create the datasets and the dataloaders
     train_dataset = AudioDataset(
-        workspace, train_df, feature_type=feature_type, perm=perm, resize=num_frames)
+        workspace, train_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='train')
     valid_dataset = AudioDataset(
-        workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames)
+        workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='val')
     test_dataset = AudioDataset(
-        workspace, test_df, feature_type=feature_type, perm=perm, resize=num_frames)
+        workspace, test_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='test')
     test_loader = DataLoader(test_dataset, batch_size,
                              shuffle=False, num_workers=num_workers)
     print(len(train_dataset), len(valid_dataset), len(test_dataset))

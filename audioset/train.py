@@ -2,8 +2,9 @@
 import pandas as pd
 import numpy as np
 from zmq import device
-from albumentations import Compose, ShiftScaleRotate, GridDistortion
-from albumentations.pytorch import ToTensor
+# from albumentations import Compose, ShiftScaleRotate, GridDistortion
+# from albumentations.pytorch import ToTensor
+import logging
 import os
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ __email__ = "soham.tiwari800@gmail.com"
 __status__ = "Development"
 
 def run(args):
-    wandb.init(project="st-project-sec", entity="sohamtiwari3120")
+    wandb.init(project="st-project-sec")
     wandb.config.update(args)
     expt_name = args.expt_name
     workspace = args.workspace
@@ -62,9 +63,15 @@ def run(args):
     os.makedirs('{}/model'.format(workspace), exist_ok=True)
     
     if use_resampled_data:
-        file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
-                               feature_type, getSampleRateString(sample_rate))))]
-        train_list, val_list = sklearn.model_selection.train_test_split(file_list, train_size=0.8, random_state = seed)
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
+        #                        feature_type, getSampleRateString(sample_rate))))]
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/*.wav.npy'.format(workspace,
+        #                 feature_type, getSampleRateString(sample_rate))))]
+        # train_list, val_list = sklearn.model_selection.train_test_split(file_list, train_size=0.8, random_state = seed)
+        train_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/train_labels/*.wav.npy'.format(workspace,
+                                                                                                        feature_type, getSampleRateString(sample_rate))))]    
+        val_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/val_labels/*.wav.npy'.format(workspace,
+                                                                                                feature_type, getSampleRateString(sample_rate))))]
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
     else:
@@ -84,22 +91,18 @@ def run(args):
         RandomCycle()
     ])
 
-    albumentations_transform = Compose([
-        ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=0.5),
-        GridDistortion(),
-        ToTensor()
-    ])
+    # albumentations_transform = Compose([
+    #     ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=0.5),
+    #     GridDistortion(),
+    #     ToTensor()
+    # ])
 
     # Create the datasets and the dataloaders
 
-    train_dataset = AudioDataset(workspace, train_df, feature_type=feature_type,
-                                 perm=perm,
-                                 resize=num_frames,
-                                 image_transform=albumentations_transform,
-                                 spec_transform=spec_transforms)
-
+    train_dataset = AudioDataset(
+        workspace, train_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='train')
     valid_dataset = AudioDataset(
-        workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames)
+        workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='val')
 
     val_loader = DataLoader(valid_dataset, batch_size,
                             shuffle=False, num_workers=num_workers)
@@ -118,6 +121,8 @@ def run(args):
         model = Task5Model(num_classes, model_arch, pann_cnn10_encoder_ckpt_path=pann_cnn10_encoder_ckpt_path, use_cbam=use_cbam, use_pna = use_pna).to(device)
     elif model_arch == 'pann_cnn14':
         model = Task5Model(num_classes, model_arch, pann_cnn14_encoder_ckpt_path=pann_cnn14_encoder_ckpt_path, use_cbam=use_cbam, use_pna = use_pna).to(device)
+    elif model_arch == 'passt':
+        model = Task5Model(num_classes, model_arch).to(device)
     print(f'Using {model_arch} model.')
 #     summary(model, (1, n_mels, num_frames))
     wandb.watch(model, log_freq=100)
@@ -151,6 +156,7 @@ def run(args):
         print('Epoch: ', i)
 
         this_epoch_train_loss = 0
+        this_epoch_train_acc = 0
         batch = 0
         for sample in tqdm(train_loader):
             batch += 1
@@ -168,9 +174,16 @@ def run(args):
                     optimizer.step()
                     optimizer.zero_grad()
                 this_epoch_train_loss += loss.detach().cpu().numpy()
+                this_epoch_train_acc += ((outputs.argmax(dim=1) == label)*1.0).mean().detach().cpu().numpy()
         
+        this_epoch_train_acc /= batch
+
+
+        batch = 0
         this_epoch_valid_loss = 0
+        this_epoch_valid_acc = 0
         for sample in tqdm(val_loader):
+            batch += 1
             inputs = sample['data'].to(device)
             labels = sample['labels'].to(device)
             with torch.set_grad_enabled(False):
@@ -178,14 +191,18 @@ def run(args):
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 this_epoch_valid_loss += loss.detach().cpu().numpy()
-
+                this_epoch_valid_acc += ((outputs.argmax(dim=1) == labels)*1.0).mean().detach().cpu().numpy()
+        
         this_epoch_train_loss /= len(train_df)
+        this_epoch_valid_acc /= batch
         this_epoch_valid_loss /= len(valid_df)
         wandb.log({"train":{
-            "loss": this_epoch_train_loss
+            "loss": this_epoch_train_loss,
+            "precision": this_epoch_train_acc
         }})
         wandb.log({"validation":{
-            "loss": this_epoch_valid_loss
+            "loss": this_epoch_valid_loss,
+            "precision": this_epoch_valid_acc
         }})
         print(
             f"train_loss = {this_epoch_train_loss}, val_loss={this_epoch_valid_loss}")
@@ -232,4 +249,6 @@ if __name__ == "__main__":
     parser.add_argument('-ga', '--grad_acc_steps',
                         type=int, default=grad_acc_steps)
     args = parser.parse_args()
+    logging.getLogger().setLevel(logging.ERROR)
     run(args)
+

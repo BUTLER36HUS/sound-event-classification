@@ -8,9 +8,9 @@ __maintainer__ = "Soham Tiwari"
 __email__ = "soham.tiwari800@gmail.com"
 __status__ = "Development"
 
-use_resampled_data = False
+use_resampled_data = True
 
-model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3"]
+model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3", "passt"]
 class_mapping = {}
 if use_resampled_data:
     class_mapping['Breaking'] = 0
@@ -21,6 +21,11 @@ if use_resampled_data:
     class_mapping['Motor vehicle (road)'] = 5
     class_mapping['Screaming'] = 6
     class_mapping['Siren'] = 7
+    class_mapping['Male speech']=8
+    class_mapping['Female speech']=9
+    # class_mapping['Silent']=8
+    # class_mapping['Male speech']=9
+    # class_mapping['Female speech']=10
 else:
     class_mapping['breaking'] = 0
     class_mapping['chatter'] = 1
@@ -33,16 +38,16 @@ else:
     class_mapping['siren'] = 8
     class_mapping['others'] = 9
     
-num_workers = 2
+num_workers = 8
 feature_type = 'logmelspec'
 num_bins = 128
 resize = True
-learning_rate = 0.001
+learning_rate = 1e-5
 amsgrad = True
 verbose = True
 patience = 5
-epochs = 50
-early_stopping = 20
+epochs = 20
+early_stopping = 10
 gpu = False
 channels = 2
 length_full_recording = 10
@@ -73,7 +78,7 @@ workspace = '/notebooks/sound-event-classification/audioset'
 target_names = list(class_mapping.keys())
 num_classes = len(target_names)
 # for balancedbatchsampler, for every batch to have equal number of samples, the size of each batch should be a multiple of the num of classes
-batch_size = 32
+batch_size = 48
 grad_acc_steps = 1
 
 # voting = 'simple_average'

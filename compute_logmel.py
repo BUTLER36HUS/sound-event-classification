@@ -1,6 +1,7 @@
 import os
 import librosa
 import numpy as np
+import dill as pickle
 from joblib import Parallel, delayed
 from glob import glob
 from tqdm import tqdm
@@ -13,7 +14,7 @@ number_of_files_success = 0
 logger.add(f'compute_logmel_sr={sample_rate}.log')
 
 @logger.catch
-def remove_codec_substr(filename: str, remove_codec_from_filename: bool = True):
+def remove_codec_substr(filename: str, remove_codec_from_filename: bool = False):
     """Utility function to remove codec substring from audio files in audioset dataset.
 
     Args:
@@ -46,9 +47,8 @@ def compute_melspec(filename, outdir, audio_segment_length):
                 n_mels=n_mels,
                 fmin=fmin,
                 fmax=fmax)
-        logmel = librosa.core.power_to_db(melspec)
-        save_path = os.path.join(outdir, remove_codec_substr(filename,
-                remove_codec_from_filename) + '.npy')
+        logmel = librosa.power_to_db(melspec)
+        save_path = os.path.join(outdir, filename + '.npy')
         np.save(save_path, logmel)
         logger.success(save_path)
         number_of_files_success+=1
@@ -71,10 +71,11 @@ def main(input_path, output_path, audio_segment_length):
     logger.info(f'Starting computing logmels using above params.')
     file_list = glob(input_path + '/*.wav')
     os.makedirs(output_path, exist_ok=True)
-    _ = Parallel(n_jobs=num_cores)(
+    _ = Parallel(n_jobs=num_cores,backend='threading')(
         delayed(lambda x: compute_melspec(
             x, output_path, audio_segment_length))(x)
-        for x in tqdm(file_list))
+        for x in tqdm(file_list)
+        )
     global number_of_files_success
     logger.success(f'Finished computing logmels using sr = {sample_rate}, total successfully converted to logmels = {number_of_files_success}')
 
