@@ -47,15 +47,15 @@ def compute_melspec(filename, outdir, audio_segment_length):
                 n_mels=n_mels,
                 fmin=fmin,
                 fmax=fmax)
-<<<<<<< Updated upstream
+
         logmel = librosa.core.power_to_db(melspec)
         save_path = os.path.join(outdir, remove_codec_substr(filename,
                 remove_codec_from_filename) + '.npy')
-=======
+
         logmel = librosa.power_to_db(melspec)
         filename = Path(filename).name
         save_path = os.path.join(outdir, filename + '.npy')
->>>>>>> Stashed changes
+
         np.save(save_path, logmel)
         logger.success(save_path)
         number_of_files_success+=1

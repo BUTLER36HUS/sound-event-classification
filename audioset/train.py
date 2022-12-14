@@ -66,11 +66,11 @@ def run(args):
     os.makedirs('{}/model'.format(workspace), exist_ok=True)
     
     if use_resampled_data:
-<<<<<<< Updated upstream
+
         file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
                                feature_type, getSampleRateString(sample_rate))))]
         train_list, val_list = sklearn.model_selection.train_test_split(file_list, train_size=0.8, random_state = seed)
-=======
+
         # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
         #                        feature_type, getSampleRateString(sample_rate))))]
         # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/*.wav.npy'.format(workspace,
@@ -80,7 +80,7 @@ def run(args):
                                                                                                         feature_type, getSampleRateString(sample_rate))))]    
         val_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/val_logmel/{}/*.wav.npy'.format(workspace,f'sr={sample_rate}_hop={hop_length}',
                                                                                                 feature_type, getSampleRateString(sample_rate))))]
->>>>>>> Stashed changes
+
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
     else:
@@ -108,7 +108,7 @@ def run(args):
 
     # Create the datasets and the dataloaders
 
-<<<<<<< Updated upstream
+
     train_dataset = AudioDataset(workspace, train_df, feature_type=feature_type,
                                  perm=perm,
                                  resize=num_frames,
@@ -117,12 +117,12 @@ def run(args):
 
     valid_dataset = AudioDataset(
         workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames)
-=======
+
     train_dataset = AudioDataset(
         workspace, train_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='train', sample_rate=sample_rate, hop_length=hop_length)
     valid_dataset = AudioDataset(
         workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='val', sample_rate=sample_rate, hop_length=hop_length)
->>>>>>> Stashed changes
+
 
     print(f'Using balanced_sampler = {balanced_sampler}')
     if balanced_sampler:
@@ -272,11 +272,11 @@ if __name__ == "__main__":
                         help="Specifies hop length of the spectrogram.", default=hop_length)
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
     args = parser.parse_args()
-<<<<<<< Updated upstream
-=======
+
+
     sample_rate = args.sample_rate
     hop_length = args.hop_length
     learning_rate = args.learning_rate
     logging.getLogger().setLevel(logging.ERROR)
->>>>>>> Stashed changes
+
     run(args)

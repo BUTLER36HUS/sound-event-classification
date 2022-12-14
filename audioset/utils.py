@@ -61,12 +61,11 @@ def getLabelFromFilename(file_name: str) -> int:
 
 class AudioDataset(Dataset):
 
-<<<<<<< Updated upstream
-    def __init__(self, workspace, df, feature_type=feature_type, perm=permutation, spec_transform=None, image_transform=None, resize=num_frames, sample_rate=sample_rate):
-=======
+
+
     def __init__(self, workspace, df, feature_type=feature_type, perm=permutation, spec_transform=None, image_transform=None, resize=num_frames, sample_rate=sample_rate, hop_length=hop_length,
                     usage:str='train'):
->>>>>>> Stashed changes
+
 
         self.workspace = workspace
         self.df = df
@@ -80,17 +79,17 @@ class AudioDataset(Dataset):
         self.resize = ResizeSpectrogram(frames=resize)
         self.pil = transforms.ToPILImage()
 
-<<<<<<< Updated upstream
+
         self.channel_means = np.load('{}/data/statistics/{}/channel_means_{}_{}.npy'.format(
             workspace, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
         self.channel_stds = np.load('{}/data/statistics/{}/channel_stds_{}_{}.npy'.format(
             workspace, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
-=======
+
         self.channel_means = np.load('{}/{}_logmel/{}/data/statistics/{}/channel_means_{}_{}.npy'.format(
             workspace, usage, f'sr={sample_rate}_hop={hop_length}',getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
         self.channel_stds = np.load('{}/{}_logmel/{}/data/statistics/{}/channel_stds_{}_{}.npy'.format(
             workspace, usage, f'sr={sample_rate}_hop={hop_length}',getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
->>>>>>> Stashed changes
+
 
         self.channel_means = self.channel_means.reshape(1, -1, 1)
         self.channel_stds = self.channel_stds.reshape(1, -1, 1)
@@ -120,12 +119,12 @@ class AudioDataset(Dataset):
             sample = np.mean(sample,axis=0)
 
 
-<<<<<<< Updated upstream
+
         sample = np.load(
             f"{self.workspace}/data/{self.feature_type}/audio_{getSampleRateString(self.sample_rate)}/{file_name}.wav.npy")
-=======
 
->>>>>>> Stashed changes
+
+
 
         if self.resize:
             sample = self.resize(sample)
@@ -371,8 +370,8 @@ class Task5Model(nn.Module):
                 nn.Linear(2048, 512), nn.ReLU(), nn.BatchNorm1d(512),
                 nn.Linear(512, 256), nn.ReLU(), nn.BatchNorm1d(256),
                 nn.Linear(256, num_classes))
-<<<<<<< Updated upstream
-=======
+
+
         if model_arch=="passt":
             self.passt = PaSST(
                 num_classes=num_classes,
@@ -429,7 +428,7 @@ class Task5Model(nn.Module):
             #     )} for _ in range(num_classes)
             # )
 
->>>>>>> Stashed changes
+
 
     def forward(self, x):
         if self.model_arch == 'mobilenetv2':
@@ -448,8 +447,8 @@ class Task5Model(nn.Module):
             x = torch.squeeze(x, 1)  # -> (batch_size, num_frames, 64)
             x = self.encoder(x)
             x = self.pann_head(x)
-<<<<<<< Updated upstream
-=======
+
+
         
         elif self.model_arch=="passt":
             x = self.passt(x)[0]
@@ -469,7 +468,7 @@ class Task5Model(nn.Module):
             y_hat = self.mlp(gru_output.squeeze())
             return y_hat
             # return y_hat.squeeze(), hidden, attn_norms     
->>>>>>> Stashed changes
+
         # x-> (batch_size, 1280/512, H, W)
         # x = x.max(dim=-1)[0].max(dim=-1)[0] # change it to mean
         if self.use_cbam:

@@ -37,21 +37,18 @@ num_workers = 2
 feature_type = 'logmelspec'
 num_bins = 128
 resize = True
-<<<<<<< Updated upstream
 learning_rate = 0.001
 amsgrad = True
 verbose = True
 patience = 5
 epochs = 50
 early_stopping = 20
-=======
 learning_rate = 5e-5
 amsgrad = True
 verbose = True
 patience = 5
 epochs = 35
 early_stopping = 10
->>>>>>> Stashed changes
 gpu = False
 channels = 2
 length_full_recording = 10
@@ -84,11 +81,8 @@ workspace = '/notebooks/sound-event-classification/audioset'
 target_names = list(class_mapping.keys())
 num_classes = len(target_names)
 # for balancedbatchsampler, for every batch to have equal number of samples, the size of each batch should be a multiple of the num of classes
-<<<<<<< Updated upstream
 batch_size = 32
-=======
 batch_size = 24
->>>>>>> Stashed changes
 grad_acc_steps = 1
 
 # voting = 'simple_average'

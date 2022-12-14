@@ -30,14 +30,14 @@ for i, target in enumerate(target_names):
 def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_name):
 
     if use_resampled_data:
-<<<<<<< Updated upstream
+
         file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
                                                                                                              feature_type, getSampleRateString(sample_rate))))]
         train_list, test_list = sklearn.model_selection.train_test_split(
             file_list, train_size=0.8, random_state=seed)
         train_list, val_list = sklearn.model_selection.train_test_split(
             train_list, train_size=0.9, random_state=seed)
-=======
+
         # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
         #                                                                                                      feature_type, getSampleRateString(sample_rate))))]
         # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/*.wav.npy'.format(workspace,
@@ -52,7 +52,7 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
         #     file_list, train_size=0.8, random_state=seed)
         # train_list, val_list = sklearn.model_selection.train_test_split(
         #     train_list, train_size=0.9, random_state=seed)
->>>>>>> Stashed changes
+
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
         test_df = pd.DataFrame(test_list)
