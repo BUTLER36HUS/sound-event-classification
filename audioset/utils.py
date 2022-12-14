@@ -2,7 +2,7 @@ from typing import Iterator
 from matplotlib.style import use
 import pandas as pd
 import scipy
-from config import feature_type, permutation, sample_rate, num_frames, use_cbam, cbam_kernel_size, cbam_reduction_factor, use_median_filter, use_pna, model_archs, class_mapping
+from config import feature_type, permutation, sample_rate, num_frames, use_cbam, cbam_kernel_size, cbam_reduction_factor, use_median_filter, use_pna, model_archs, class_mapping,sample_rate,hop_length
 import numpy as np
 import torch
 import torch.nn as nn
@@ -61,23 +61,36 @@ def getLabelFromFilename(file_name: str) -> int:
 
 class AudioDataset(Dataset):
 
+<<<<<<< Updated upstream
     def __init__(self, workspace, df, feature_type=feature_type, perm=permutation, spec_transform=None, image_transform=None, resize=num_frames, sample_rate=sample_rate):
+=======
+    def __init__(self, workspace, df, feature_type=feature_type, perm=permutation, spec_transform=None, image_transform=None, resize=num_frames, sample_rate=sample_rate, hop_length=hop_length,
+                    usage:str='train'):
+>>>>>>> Stashed changes
 
         self.workspace = workspace
         self.df = df
         self.filenames = df[0].unique()
+        self.length = len(self.filenames)
         self.feature_type = feature_type
         self.sample_rate = sample_rate
-
+        self.hop_length = hop_length
         self.spec_transform = spec_transform
         self.image_transform = image_transform
         self.resize = ResizeSpectrogram(frames=resize)
         self.pil = transforms.ToPILImage()
 
+<<<<<<< Updated upstream
         self.channel_means = np.load('{}/data/statistics/{}/channel_means_{}_{}.npy'.format(
             workspace, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
         self.channel_stds = np.load('{}/data/statistics/{}/channel_stds_{}_{}.npy'.format(
             workspace, getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
+=======
+        self.channel_means = np.load('{}/{}_logmel/{}/data/statistics/{}/channel_means_{}_{}.npy'.format(
+            workspace, usage, f'sr={sample_rate}_hop={hop_length}',getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
+        self.channel_stds = np.load('{}/{}_logmel/{}/data/statistics/{}/channel_stds_{}_{}.npy'.format(
+            workspace, usage, f'sr={sample_rate}_hop={hop_length}',getSampleRateString(sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2])))
+>>>>>>> Stashed changes
 
         self.channel_means = self.channel_means.reshape(1, -1, 1)
         self.channel_stds = self.channel_stds.reshape(1, -1, 1)
@@ -86,11 +99,33 @@ class AudioDataset(Dataset):
         return len(self.filenames)
 
     def __getitem__(self, idx):
-        file_name = getFileNameFromDf(self.df, idx)
-        labels = getLabelFromFilename(file_name)
+        if idx<self.length:
+            file_name = getFileNameFromDf(self.df, idx)
+            labels = getLabelFromFilename(file_name)
+            # sample = np.load(
+            #     f"{self.workspace}/data/{self.feature_type}/audio_{getSampleRateString(self.sample_rate)}/{file_name}.wav.npy")
 
+            sample = np.load(
+                f"{self.workspace}/{self.usage}_logmel/sr={self.sample_rate}_hop={self.hop_length}/{file_name}.wav.npy")
+        else:
+            temp = idx
+            file_names = []
+            while temp>0:
+                file_names.append(getFileNameFromDf(self.df,temp%self.length))
+                temp = temp//self.length
+            labels = getLabelFromFilename(file_names[0])
+            sample = np.array([np.load(
+                                    f"{self.workspace}/{self.usage}_logmel/sr={self.sample_rate}_hop={self.hop_length}/{file_name}.wav.npy")
+                                            for file_name in file_names])
+            sample = np.mean(sample,axis=0)
+
+
+<<<<<<< Updated upstream
         sample = np.load(
             f"{self.workspace}/data/{self.feature_type}/audio_{getSampleRateString(self.sample_rate)}/{file_name}.wav.npy")
+=======
+
+>>>>>>> Stashed changes
 
         if self.resize:
             sample = self.resize(sample)
@@ -137,7 +172,7 @@ class AudioDataset(Dataset):
 
 
 class BalancedBatchSampler(torch.utils.data.sampler.Sampler):
-    def __init__(self, dataset_df):
+    def __init__(self, dataset_df, maxdb=120.0, mindb=-50, useMixup=False):
         self.df = dataset_df
         self.filenames = self.df[0].unique()
         self.length = len(self.filenames)
@@ -152,12 +187,22 @@ class BalancedBatchSampler(torch.utils.data.sampler.Sampler):
             if len(self.dataset[label]) > self.balanced_max:
                 self.balanced_max = len(self.dataset[label])
 
+
         # Oversample the classes with fewer elements than the max
         for label in self.dataset:
             diff = self.balanced_max - len(self.dataset[label])
             if diff > 0:
-                self.dataset[label].extend(
-                    np.random.choice(self.dataset[label], size=diff))
+                if useMixup:
+                    raw_len = len(self.dataset[label])
+                    mix_num = 2
+                    while diff > 0 and raw_len>mix_num:
+                        self.dataset[label].extend(self.naive_mixup(label,mix_num=mix_num,raw_length=raw_len)[:min(diff,raw_len**mix_num)])
+                        mix_num+=1
+                        diff = self.balanced_max - len(self.dataset[label])
+                if diff>0: # still need to oversample (the number of samples is less than mix_num)aa
+                    self.dataset[label].extend(
+                        np.random.choice(self.dataset[label], size=diff))
+                    
         self.keys = list(self.dataset.keys())
         self.currentkey = 0
         self.indices = [-1]*len(self.keys)
@@ -176,6 +221,14 @@ class BalancedBatchSampler(torch.utils.data.sampler.Sampler):
 
     def __len__(self):
         return self.balanced_max*len(self.keys)
+
+    def naive_mixup(self,label, mix_num, raw_length):
+        raws = self.dataset[label][:raw_length]
+        gradients = np.choice(raws, size=mix_num*(raw_length**mix_num)).reshape(mix_num, -1)
+        idx_factors = (self.length**np.arange(mix_num)).reshape(mix_num, 1)
+        idxs = np.sum(gradients*idx_factors, axis=0)+self.length
+        return idxs
+
 
 
 def apply_median(self, predictions):
@@ -318,6 +371,65 @@ class Task5Model(nn.Module):
                 nn.Linear(2048, 512), nn.ReLU(), nn.BatchNorm1d(512),
                 nn.Linear(512, 256), nn.ReLU(), nn.BatchNorm1d(256),
                 nn.Linear(256, num_classes))
+<<<<<<< Updated upstream
+=======
+        if model_arch=="passt":
+            self.passt = PaSST(
+                num_classes=num_classes,
+                # img_size = (128,1757),
+                # u_patchout=2300,
+                img_size= (128, 638),
+                u_patchout=100,
+                # s_patchout_f=4,
+                stride=10,
+                drop_rate=0.2,
+                )
+        
+        if model_arch=="rfrnn":
+            self.hidden_size = hidden_size = 128
+            self.input_size = input_size = 128
+            self.num_layers = num_layers = 4
+            self.attn = nn.Sequential(
+                nn.Linear(hidden_size,(hidden_size+input_size)*2),
+                nn.Sigmoid(),
+                nn.ReLU(),
+                nn.Linear((hidden_size+input_size)*2,input_size),
+                nn.Sigmoid()
+            )
+            self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=False)
+            self.mlp = nn.Sequential(
+                # nn.Linear(hidden_size*gru_layers, hidden_size*2),
+                nn.Sigmoid(),
+                nn.Linear(hidden_size, hidden_size*2),
+                nn.ReLU(),
+                nn.Linear(hidden_size*2, hidden_size*2),
+                nn.ReLU(),
+                nn.Linear(hidden_size*2, num_classes),
+                #nn.Softmax(dim=1)
+            )
+            # self.rnns = ({
+            #     'attn': nn.Sequential(
+            #         nn.Linear(hidden_size,(hidden_size+input_size)*2),
+            #         nn.Sigmoid(),
+            #         nn.ReLU(),
+            #         nn.Linear((hidden_size+input_size)*2,input_size),
+            #         nn.Sigmoid()
+            #     ),
+            #     'rnn': nn.GRU(input_size=input_size, hidden_size=hidden_size, 
+            #         num_layers=num_layers, batch_first=True, bidirectional=False),
+            #     'mlp': nn.Sequential(
+            #         # nn.Linear(hidden_size*gru_layers, hidden_size*2),
+            #         nn.Linear(hidden_size, hidden_size*2),
+            #         nn.Tanh(),
+            #         nn.ReLU(),
+            #         nn.Linear(hidden_size*2, hidden_size*2),
+            #         nn.ReLU(),
+            #         nn.Linear(hidden_size*2, 2),
+            #         #nn.Softmax(dim=1)
+            #     )} for _ in range(num_classes)
+            # )
+
+>>>>>>> Stashed changes
 
     def forward(self, x):
         if self.model_arch == 'mobilenetv2':
@@ -336,6 +448,28 @@ class Task5Model(nn.Module):
             x = torch.squeeze(x, 1)  # -> (batch_size, num_frames, 64)
             x = self.encoder(x)
             x = self.pann_head(x)
+<<<<<<< Updated upstream
+=======
+        
+        elif self.model_arch=="passt":
+            x = self.passt(x)[0]
+            return x
+        elif self.model_arch == 'RFRNN':
+            gru_output = torch.zeros((x.shape[0],1,self.hidden_size)).to(self.device)
+            hidden = torch.zeros((self.num_layers,x.shape[0],self.hidden_size)).to(self.device)
+            attn_norms = torch.zeros((1)).squeeze().to(self.device)
+            x = x.squeeze().to(self.device)
+            for t in range(x.shape[-1]):
+                attn_weights = self.attn(hidden[-1])
+                # attn_weights = self.attn(torch.cat([hidden[-1],x[:,:,t]],dim=1))
+                # attn_output = torch.bmm(attn_weights,x[:,:,t].unsqueeze(1))
+                attn_output = attn_weights.unsqueeze(1)*x[:,:,t].unsqueeze(1)
+                attn_norms += torch.norm(attn_weights)
+                gru_output,hidden  = self.gru(attn_output,hidden)
+            y_hat = self.mlp(gru_output.squeeze())
+            return y_hat
+            # return y_hat.squeeze(), hidden, attn_norms     
+>>>>>>> Stashed changes
         # x-> (batch_size, 1280/512, H, W)
         # x = x.max(dim=-1)[0].max(dim=-1)[0] # change it to mean
         if self.use_cbam:

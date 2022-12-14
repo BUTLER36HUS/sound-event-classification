@@ -10,3 +10,4 @@ dcase/test.wav
 __pycache__/
 .ipynb_checkpoints
 wandb/*
+audioset/wandb/*

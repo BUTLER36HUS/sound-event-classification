@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, f1_score, accuracy_score
 import argparse
 from utils import AudioDataset, Task5Model, configureTorchDevice, getSampleRateString
-from config import target_names, feature_type, num_frames, permutation, batch_size, num_workers, num_classes, sample_rate, workspace, use_cbam, seed, use_resampled_data
+from config import target_names, feature_type, num_frames, permutation, batch_size, num_workers, num_classes, sample_rate, workspace, use_cbam, seed, use_resampled_data,hop_length
 from glob import glob
 
 __author__ = "Andrew Koh Jin Jie, Anushka Jain and Soham Tiwari"
@@ -30,12 +30,29 @@ for i, target in enumerate(target_names):
 def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_name):
 
     if use_resampled_data:
+<<<<<<< Updated upstream
         file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
                                                                                                              feature_type, getSampleRateString(sample_rate))))]
         train_list, test_list = sklearn.model_selection.train_test_split(
             file_list, train_size=0.8, random_state=seed)
         train_list, val_list = sklearn.model_selection.train_test_split(
             train_list, train_size=0.9, random_state=seed)
+=======
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
+        #                                                                                                      feature_type, getSampleRateString(sample_rate))))]
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/*.wav.npy'.format(workspace,
+        #                                                                                                 feature_type, getSampleRateString(sample_rate))))]
+        train_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/train_logmel/{}/*.wav.npy'.format(workspace, f'sr={sample_rate}_hop={hop_length}',
+                                                                                                        feature_type, getSampleRateString(sample_rate))))]    
+        val_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/val_logmel/{}/*.wav.npy'.format(workspace, f'sr={sample_rate}_hop={hop_length}',
+                                                                                                feature_type, getSampleRateString(sample_rate))))]
+        test_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/test_logmel/{}/*.wav.npy'.format(workspace, f'sr={sample_rate}_hop={hop_length}',
+                                                                                                        feature_type, getSampleRateString(sample_rate))))]  
+        # train_list, test_list = sklearn.model_selection.train_test_split(
+        #     file_list, train_size=0.8, random_state=seed)
+        # train_list, val_list = sklearn.model_selection.train_test_split(
+        #     train_list, train_size=0.9, random_state=seed)
+>>>>>>> Stashed changes
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
         test_df = pd.DataFrame(test_list)
@@ -68,6 +85,8 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
     model.load_state_dict(torch.load(model_path)['model_state_dict'])
     print(f'Using {model_arch} model from {model_path}.')
 
+    confusion_matrix = np.zeros((num_classes, num_classes))
+
     y_pred = []
     for sample in test_loader:
         inputs = sample['data'].to(device)
@@ -79,6 +98,7 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
             for i in range(len(outputs)):
                 curr = outputs[i]
                 arg = torch.argmax(curr)
+                confusion_matrix[labels[i]][arg] += 1
                 y_pred.append(arg.detach().cpu().numpy())
     y_true = []
 
@@ -111,6 +131,8 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
         f"Macro F1 Score: {f1_score(y_true_new, y_pred_new, average='macro')}")
     print(f'Accuracy Score: {accuracy_score(y_true_new, y_pred_new)}')
     print(y_true_new[:5], y_pred_new[:5])
+    np.save('{}/model/{}/{}/confusion_matrix_{}_{}_{}_use_cbam_{}'.format(workspace, expt_name, getSampleRateString(
+        sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2]), model_arch, use_cbam), confusion_matrix)
 
 
 if __name__ == "__main__":
@@ -124,6 +146,12 @@ if __name__ == "__main__":
     parser.add_argument('-cbam', '--use_cbam', action='store_true')
     parser.add_argument('-p', '--permutation', type=int,
                         nargs='+', default=permutation)
+    parser.add_argument('-sr', '--sample_rate', type=int,
+                        help="Specifies sample rates of the spectrogram.", default=sample_rate)
+    parser.add_argument('-hop', '--hop_length', type=int,
+                        help="Specifies hop length of the spectrogram.", default=hop_length)
     args = parser.parse_args()
+    sample_rate = args.sample_rate
+    hop_length = args.hop_length
     run(args.workspace, args.feature_type, args.num_frames,
         args.permutation, args.model_arch, args.use_cbam, args.expt_name)

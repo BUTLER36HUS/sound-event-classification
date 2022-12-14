@@ -18,7 +18,7 @@ import argparse
 from utils import AudioDataset, Task5Model, configureTorchDevice, getSampleRateString, BalancedBatchSampler
 from augmentation.SpecTransforms import TimeMask, FrequencyMask, RandomCycle
 from torchsummary import summary
-from config import feature_type, num_frames, seed, permutation, batch_size, num_workers, num_classes, learning_rate, amsgrad, patience, verbose, epochs, workspace, sample_rate, early_stopping, grad_acc_steps, model_arch, pann_cnn10_encoder_ckpt_path, pann_cnn14_encoder_ckpt_path, resume_training, n_mels, use_cbam, use_resampled_data 
+from config import feature_type, num_frames, seed, permutation, batch_size, num_workers, num_classes, learning_rate, amsgrad, patience, verbose, epochs, workspace, sample_rate, early_stopping, grad_acc_steps, model_arch, pann_cnn10_encoder_ckpt_path, pann_cnn14_encoder_ckpt_path, resume_training, n_mels, use_cbam, use_resampled_data, hop_length
 import wandb
 import sklearn
 from glob import glob
@@ -45,13 +45,17 @@ def run(args):
     model_arch = args.model_arch
     use_cbam = args.use_cbam
     use_pna = args.use_pna
+    sample_rate  = args.sample_rate
+    hop_length = args.hop_length
     print(f'Using cbam: {use_cbam}')
     print(f'Using pna: {use_pna}')
+    print(f'Using mixup: {args.use_mixup}')
     if model_arch == 'pann_cnn10':
         pann_cnn10_encoder_ckpt_path = args.pann_cnn10_encoder_ckpt_path
     elif model_arch == 'pann_cnn14':
         pann_cnn14_encoder_ckpt_path = args.pann_cnn14_encoder_ckpt_path
     balanced_sampler = args.balanced_sampler
+    balanced_sampler_val = args.balanced_sampler_val
 
     starting_epoch = 0
     random.seed(seed)
@@ -62,9 +66,21 @@ def run(args):
     os.makedirs('{}/model'.format(workspace), exist_ok=True)
     
     if use_resampled_data:
+<<<<<<< Updated upstream
         file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
                                feature_type, getSampleRateString(sample_rate))))]
         train_list, val_list = sklearn.model_selection.train_test_split(file_list, train_size=0.8, random_state = seed)
+=======
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
+        #                        feature_type, getSampleRateString(sample_rate))))]
+        # file_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/*.wav.npy'.format(workspace,
+        #                 feature_type, getSampleRateString(sample_rate))))]
+        # train_list, val_list = sklearn.model_selection.train_test_split(file_list, train_size=0.8, random_state = seed)
+        train_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/train_logmel/{}/*.wav.npy'.format(workspace,f'sr={sample_rate}_hop={hop_length}',
+                                                                                                        feature_type, getSampleRateString(sample_rate))))]    
+        val_list = [os.path.basename(p)[:-8] for p in np.unique(glob('{}/val_logmel/{}/*.wav.npy'.format(workspace,f'sr={sample_rate}_hop={hop_length}',
+                                                                                                feature_type, getSampleRateString(sample_rate))))]
+>>>>>>> Stashed changes
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
     else:
@@ -92,6 +108,7 @@ def run(args):
 
     # Create the datasets and the dataloaders
 
+<<<<<<< Updated upstream
     train_dataset = AudioDataset(workspace, train_df, feature_type=feature_type,
                                  perm=perm,
                                  resize=num_frames,
@@ -100,14 +117,27 @@ def run(args):
 
     valid_dataset = AudioDataset(
         workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames)
+=======
+    train_dataset = AudioDataset(
+        workspace, train_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='train', sample_rate=sample_rate, hop_length=hop_length)
+    valid_dataset = AudioDataset(
+        workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames, usage='val', sample_rate=sample_rate, hop_length=hop_length)
+>>>>>>> Stashed changes
 
-    val_loader = DataLoader(valid_dataset, batch_size,
-                            shuffle=False, num_workers=num_workers)
     print(f'Using balanced_sampler = {balanced_sampler}')
     if balanced_sampler:
         train_loader = DataLoader(train_dataset, batch_size, sampler=BalancedBatchSampler(train_df), num_workers=num_workers, drop_last=True)
     else:
         train_loader = DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers, drop_last=True)
+
+    print(f'Using balanced_sampler_val = {balanced_sampler_val}')
+    
+    # val_loader = DataLoader(valid_dataset, batch_size,
+    #                         shuffle=False, num_workers=num_workers)
+    if balanced_sampler_val:
+        val_loader = DataLoader(valid_dataset, batch_size, sampler=BalancedBatchSampler(valid_df,useMixup=args.mixup), num_workers=num_workers, shuffle=False)
+    else:
+        val_loader = DataLoader(valid_dataset, batch_size, shuffle=False, num_workers=num_workers)
 
     # Define the device to be used
     device = configureTorchDevice()
@@ -138,7 +168,7 @@ def run(args):
     valid_loss_hist = []
     lowest_val_loss = np.inf
     epochs_without_new_lowest = 0
-
+    higest_val_acc = -np.inf
     if resume_training and os.path.exists(model_path):
         print(f'resume_training = {resume_training} using path {model_path}')
         checkpoint = torch.load(model_path)
@@ -192,8 +222,10 @@ def run(args):
         train_loss_hist.append(this_epoch_train_loss)
         valid_loss_hist.append(this_epoch_valid_loss)
 
-        if this_epoch_valid_loss < lowest_val_loss:
-            lowest_val_loss = this_epoch_valid_loss
+        # if this_epoch_valid_loss < lowest_val_loss:
+            # lowest_val_loss = this_epoch_valid_loss
+        if this_epoch_valid_acc>higest_val_acc:
+            higest_val_acc = this_epoch_valid_acc
             torch.save({
                 'epoch': i,
                 'model_state_dict': model.state_dict(),
@@ -217,6 +249,7 @@ if __name__ == "__main__":
     parser.add_argument('-w', '--workspace', type=str, default=workspace)
     parser.add_argument('-f', '--feature_type', type=str, default=feature_type)
     parser.add_argument('-ma', '--model_arch', type=str, default=model_arch)
+    parser.add_argument('-kwargs', '--model_kwargs', type=str, default={}, nargs='+')
     parser.add_argument('-cp10', '--pann_cnn10_encoder_ckpt_path',
                         type=str, default=pann_cnn10_encoder_ckpt_path)
     parser.add_argument('-cp14', '--pann_cnn14_encoder_ckpt_path',
@@ -227,9 +260,23 @@ if __name__ == "__main__":
     parser.add_argument('-s', '--seed', type=int, default=seed)
     parser.add_argument('-rt', '--resume_training', action='store_true')
     parser.add_argument('-bs', '--balanced_sampler', type=bool, default=False)
+    parser.add_argument('-bsval', '--balanced_sampler_val', type=bool, default=False)
+    parser.add_argument('-mixup', '--use_mixup', type=bool, default=False)
     parser.add_argument('-cbam', '--use_cbam', action='store_true')
     parser.add_argument('-pna', '--use_pna', action='store_true')
     parser.add_argument('-ga', '--grad_acc_steps',
                         type=int, default=grad_acc_steps)
+    parser.add_argument('-sr', '--sample_rate', type=int,
+                        help="Specifies sample rates of the spectrogram.", default=sample_rate)
+    parser.add_argument('-hop', '--hop_length', type=int,
+                        help="Specifies hop length of the spectrogram.", default=hop_length)
+    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
     args = parser.parse_args()
+<<<<<<< Updated upstream
+=======
+    sample_rate = args.sample_rate
+    hop_length = args.hop_length
+    learning_rate = args.learning_rate
+    logging.getLogger().setLevel(logging.ERROR)
+>>>>>>> Stashed changes
     run(args)
