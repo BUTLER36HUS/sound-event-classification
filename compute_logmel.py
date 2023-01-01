@@ -1,7 +1,7 @@
 import os
+from pathlib import Path
 import librosa
 import numpy as np
-import dill as pickle
 from joblib import Parallel, delayed
 from glob import glob
 from tqdm import tqdm
@@ -14,7 +14,7 @@ number_of_files_success = 0
 logger.add(f'compute_logmel_sr={sample_rate}.log')
 
 @logger.catch
-def remove_codec_substr(filename: str, remove_codec_from_filename: bool = False):
+def remove_codec_substr(filename: str, remove_codec_from_filename: bool = True):
     """Utility function to remove codec substring from audio files in audioset dataset.
 
     Args:
@@ -47,8 +47,15 @@ def compute_melspec(filename, outdir, audio_segment_length):
                 n_mels=n_mels,
                 fmin=fmin,
                 fmax=fmax)
+
+        logmel = librosa.core.power_to_db(melspec)
+        save_path = os.path.join(outdir, remove_codec_substr(filename,
+                remove_codec_from_filename) + '.npy')
+
         logmel = librosa.power_to_db(melspec)
+        filename = Path(filename).name
         save_path = os.path.join(outdir, filename + '.npy')
+
         np.save(save_path, logmel)
         logger.success(save_path)
         number_of_files_success+=1
@@ -70,12 +77,12 @@ def main(input_path, output_path, audio_segment_length):
     logger.info(f"remove_codec_from_filename = {remove_codec_from_filename}")
     logger.info(f'Starting computing logmels using above params.')
     file_list = glob(input_path + '/*.wav')
+    output_path = os.path.join(output_path,f"sr={sample_rate}_hop={hop_length}")
     os.makedirs(output_path, exist_ok=True)
-    _ = Parallel(n_jobs=num_cores,backend='threading')(
+    _ = Parallel(n_jobs=num_cores)(
         delayed(lambda x: compute_melspec(
             x, output_path, audio_segment_length))(x)
-        for x in tqdm(file_list)
-        )
+        for x in tqdm(file_list))
     global number_of_files_success
     logger.success(f'Finished computing logmels using sr = {sample_rate}, total successfully converted to logmels = {number_of_files_success}')
 
@@ -88,6 +95,12 @@ if __name__ == '__main__':
                         help="Specifies directory for generated spectrograms.")
     parser.add_argument('-a', '--audio_segment_length', type=int,
                         help="Specifies length of audio segment to extract from each audio file. Default -1(Consider full length audio).", default=-1)
+    parser.add_argument('-sr', '--sample_rate', type=int,
+                        help="Specifies sample rates of the spectrogram.", default=sample_rate)
+    parser.add_argument('-hop', '--hop_length', type=int,
+                        help="Specifies hop length of the spectrogram.", default=hop_length)
     args = parser.parse_args()
-
+    hop_length = args.hop_length
+    sample_rate = args.sample_rate
+    # print(args.output_path)
     main(args.input_path, args.output_path, args.audio_segment_length)

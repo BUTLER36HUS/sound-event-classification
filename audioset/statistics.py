@@ -3,7 +3,7 @@ from tqdm import tqdm
 import argparse
 import pandas as pd
 import os
-from config import feature_type, num_bins, sample_rate, workspace, use_resampled_data
+from config import feature_type, num_bins, sample_rate, workspace, use_resampled_data, hop_length
 from utils import getSampleRateString
 from glob import glob
 
@@ -19,9 +19,14 @@ __status__ = "Development"
 
 def run(workspace, feature_type, num_bins, perm):
     if use_resampled_data:
+
+        file_list = np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
+                                                                          feature_type, getSampleRateString(sample_rate))))
+
         # file_list = np.unique(glob('{}/data/{}/audio_{}/*.wav.npy'.format(workspace,
         #                                                                   feature_type, getSampleRateString(sample_rate))))
-        file_list = np.unique(glob('{}/*.wav.npy'.format(workspace)))
+        file_list = np.unique(glob('{}/{}/*.wav.npy'.format(workspace, f'sr={sample_rate}_hop={hop_length}')))
+
     else:
         #    if '8k' in feature_type:
         #        actual_files = glob('{}/{}/*.wav.npy'.format(workspace, feature_type))
@@ -67,8 +72,8 @@ def run(workspace, feature_type, num_bins, perm):
     stdev = np.sqrt(variance)
     print(no_file_count, n)
 
-    folder_path = '{}/data/statistics/{}'.format(
-        workspace, getSampleRateString(sample_rate))
+    folder_path = '{}/{}/data/statistics/{}'.format(
+        workspace,f'sr={sample_rate}_hop={hop_length}', getSampleRateString(sample_rate))
     os.makedirs(folder_path, exist_ok=True)
     np.save('{}/channel_means_{}_{}'.format(folder_path,
             feature_type, str(perm[0])+str(perm[1])+str(perm[2])), mean)
@@ -85,5 +90,11 @@ if __name__ == "__main__":
     parser.add_argument('-n', '--num_bins', type=int, default=num_bins)
     parser.add_argument('-p', '--permutation', type=int,
                         nargs='+', required=True)
+    parser.add_argument('-sr', '--sample_rate', type=int,
+                        help="Specifies sample rates of the spectrogram.", default=sample_rate)
+    parser.add_argument('-hop', '--hop_length', type=int,
+                        help="Specifies hop length of the spectrogram.", default=hop_length)
     args = parser.parse_args()
+    sample_rate = args.sample_rate
+    hop_length = args.hop_length
     run(args.workspace, args.feature_type, args.num_bins, args.permutation)

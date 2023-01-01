@@ -33,7 +33,7 @@ __email__ = "soham.tiwari800@gmail.com"
 __status__ = "Development"
 
 def run(args):
-    wandb.init(project="st-project-sec")
+    wandb.init(project="st-project-sec-pretrain")
     wandb.config.update(args)
     expt_name = args.expt_name
     workspace = args.workspace

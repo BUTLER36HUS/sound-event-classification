@@ -10,7 +10,7 @@ __status__ = "Development"
 
 use_resampled_data = True
 
-model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3", "passt"]
+model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3", "passt", "upasst"]
 class_mapping = {}
 if use_resampled_data:
     class_mapping['Breaking'] = 0
@@ -78,7 +78,7 @@ workspace = '/notebooks/sound-event-classification/audioset'
 target_names = list(class_mapping.keys())
 num_classes = len(target_names)
 # for balancedbatchsampler, for every batch to have equal number of samples, the size of each batch should be a multiple of the num of classes
-batch_size = 48
+batch_size = 16
 grad_acc_steps = 1
 
 # voting = 'simple_average'
