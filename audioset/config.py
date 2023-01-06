@@ -10,7 +10,7 @@ __status__ = "Development"
 
 use_resampled_data = True
 
-model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3", "passt", "upasst"]
+model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3", "passt", "upasst","utoken","notedmobilenetv3", "notedmobilenetv2"]
 class_mapping = {}
 if use_resampled_data:
     class_mapping['Breaking'] = 0
@@ -45,7 +45,7 @@ resize = True
 learning_rate = 1e-5
 amsgrad = True
 verbose = True
-patience = 5
+patience = 10
 epochs = 20
 early_stopping = 10
 gpu = False

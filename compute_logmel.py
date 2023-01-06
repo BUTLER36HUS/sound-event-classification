@@ -1,8 +1,10 @@
 import os
 from pathlib import Path
 import librosa
+import dill as pickle
 import numpy as np
-from joblib import Parallel, delayed
+# from threading import Parallel, delayed
+from joblib import  Parallel,delayed
 from glob import glob
 from tqdm import tqdm
 import argparse
@@ -48,9 +50,9 @@ def compute_melspec(filename, outdir, audio_segment_length):
                 fmin=fmin,
                 fmax=fmax)
 
-        logmel = librosa.core.power_to_db(melspec)
-        save_path = os.path.join(outdir, remove_codec_substr(filename,
-                remove_codec_from_filename) + '.npy')
+        # logmel = librosa.core.power_to_db(melspec)
+        # save_path = os.path.join(outdir, remove_codec_substr(filename,
+        #         remove_codec_from_filename) + '.npy')
 
         logmel = librosa.power_to_db(melspec)
         filename = Path(filename).name
@@ -79,7 +81,7 @@ def main(input_path, output_path, audio_segment_length):
     file_list = glob(input_path + '/*.wav')
     output_path = os.path.join(output_path,f"sr={sample_rate}_hop={hop_length}")
     os.makedirs(output_path, exist_ok=True)
-    _ = Parallel(n_jobs=num_cores)(
+    _ = Parallel(n_jobs=num_cores, prefer="threads")(
         delayed(lambda x: compute_melspec(
             x, output_path, audio_segment_length))(x)
         for x in tqdm(file_list))

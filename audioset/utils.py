@@ -20,6 +20,7 @@ import os
 
 from model.passt.passt import PaSST
 from model.unet.unet_model import UNet
+from model.utoken import UToken
 
 __author__ = "Andrew Koh Jin Jie, Yan Zhen"
 __credits__ = ["Prof Chng Eng Siong", "Yan Zhen",
@@ -248,7 +249,8 @@ def apply_median(self, predictions):
 
 class Task5Model(nn.Module):
 
-    def __init__(self, num_classes, model_arch: str = model_archs[0], pann_cnn10_encoder_ckpt_path: str = '', pann_cnn14_encoder_ckpt_path: str = '', use_cbam: bool = use_cbam, use_pna: bool = use_pna, use_median_filter: bool = use_median_filter):
+    def __init__(self, num_classes, model_arch: str = model_archs[0], pann_cnn10_encoder_ckpt_path: str = '', pann_cnn14_encoder_ckpt_path: str = '', use_cbam: bool = use_cbam, use_pna: bool = use_pna, use_median_filter: bool = use_median_filter,
+                    dataset=None,dataset_sampler = None, dropout:float = 0.0, **kwargs):
         """Initialising model for Task 5 of DCASE
 
         Args:
@@ -307,6 +309,94 @@ class Task5Model(nn.Module):
 
             self.final = nn.Sequential(
                 nn.Linear(960, 512), nn.ReLU(), nn.BatchNorm1d(512),
+                nn.Linear(512, num_classes))
+        
+        elif  self.model_arch == "notedmobilenetv2":
+            self.knotes = kwargs['knotes']
+            self.process_notes = kwargs['process_notes']
+            # input_channels = 1 + num_classes*self.knotes
+            input_channels = num_classes*(1+self.knotes)
+            notes = []
+            for label in sorted(dataset_sampler.dataset.keys()):
+                for idx_of_data_idx in np.random.randint(0, len(dataset_sampler.dataset[label]), size=self.knotes):
+                    notes.append(dataset[dataset_sampler.dataset[label][idx_of_data_idx]]['data'])
+            self.notes = nn.Parameter(torch.cat(notes), requires_grad=False)
+                
+            self.bw2col = nn.Sequential(
+                # Dynamic_conv2d(input_channels, input_channels, 1, padding=0),
+                # nn.BatchNorm2d(input_channels),
+                Dynamic_conv2d(input_channels, input_channels*2, 1, padding=0),
+                nn.Dropout(dropout),
+                Dynamic_conv2d(input_channels*2, input_channels, 1, padding=0),
+                Dynamic_conv2d(input_channels, 3, 1, padding=0),
+                nn.BatchNorm2d(3),
+                CBAMBlock(
+                    channel=3, reduction=cbam_reduction_factor, kernel_size=cbam_kernel_size) if self.use_cbam else nn.Identity()
+            )
+            
+            self.mv2 = torchvision.models.mobilenet_v2(pretrained=True)
+            if self.process_notes==True:
+                notes_num = num_classes*self.knotes
+                self.note_processer = nn.Sequential(
+                    nn.Conv2d(notes_num,2*notes_num,kernel_size=5,padding=2),
+                    nn.GELU(),
+                    nn.Conv2d(notes_num*2,notes_num*4,kernel_size=5,padding=2),
+                    nn.GELU(),
+                    nn.Conv2d(notes_num*4,notes_num,kernel_size=5,padding=2),
+                )
+
+            if self.use_cbam:
+                self.cbam = CBAMBlock(
+                    channel=1280, reduction=cbam_reduction_factor, kernel_size=cbam_kernel_size)
+
+            self.final = nn.Sequential(
+                nn.Linear(1280, 512), 
+                nn.ReLU(), 
+                nn.BatchNorm1d(512),
+                nn.Dropout(dropout),
+                nn.Linear(512, num_classes))
+
+        elif self.model_arch == "notedmobilenetv3":
+            self.knotes = kwargs['knotes']
+            self.process_notes = kwargs['process_notes']
+            # input_channels = 1 + num_classes*self.knotes
+            input_channels = num_classes*(1+self.knotes)
+            notes = []
+            for label in sorted(dataset_sampler.dataset.keys()):
+                for idx_of_data_idx in np.random.randint(0, len(dataset_sampler.dataset[label]), size=self.knotes):
+                    notes.append(dataset[dataset_sampler.dataset[label][idx_of_data_idx]]['data'])
+            self.notes = nn.Parameter(torch.cat(notes), requires_grad=False)
+                
+            self.bw2col = nn.Sequential(
+                # Dynamic_conv2d(input_channels, input_channels, 1, padding=0),
+                # nn.BatchNorm2d(input_channels),
+                Dynamic_conv2d(input_channels, input_channels*2, 1, padding=0),
+                nn.Dropout(dropout),
+                Dynamic_conv2d(input_channels*2, input_channels, 1, padding=0),
+                Dynamic_conv2d(input_channels, 3, 1, padding=0),
+                nn.BatchNorm2d(3),
+            )
+            self.mv3 = torchvision.models.mobilenet_v3_large(pretrained=True)
+
+            if self.process_notes==True:
+                notes_num = num_classes*self.knotes
+                self.note_processer = nn.Sequential(
+                    nn.Conv2d(notes_num,2*notes_num,kernel_size=5,padding=2),
+                    nn.GELU(),
+                    nn.Conv2d(notes_num*2,notes_num*4,kernel_size=5,padding=2),
+                    nn.GELU(),
+                    nn.Conv2d(notes_num*4,notes_num,kernel_size=5,padding=2),
+                )
+
+            if self.use_cbam:
+                self.cbam = CBAMBlock(
+                    channel=960, reduction=cbam_reduction_factor, kernel_size=cbam_kernel_size)
+
+            self.final = nn.Sequential(
+                nn.Linear(960, 512), 
+                nn.ReLU(), 
+                nn.BatchNorm1d(512),
+                nn.Dropout(dropout),
                 nn.Linear(512, num_classes))
 
         elif self.model_arch == 'pann_cnn10':
@@ -385,6 +475,10 @@ class Task5Model(nn.Module):
         if model_arch=="upasst":
             print("Using Unet")
             self.unet = UNet(1,1)
+
+        
+        if model_arch == "utoken":
+            self.unet = UToken(1,1)
         
         if model_arch=="rfrnn":
             self.hidden_size = hidden_size = 128
@@ -450,6 +544,15 @@ class Task5Model(nn.Module):
             x = self.encoder(x)
             x = self.pann_head(x)
 
+        elif self.model_arch == "notedmobilenetv3" or self.model_arch=="notedmobilenetv2":
+            repeated_notes = self.notes
+            if self.process_notes==True:
+                repeated_notes = self.note_processer(repeated_notes)
+            repeated_notes = repeated_notes.unsqueeze(0).repeat(x.shape[0],1,1,1)
+            # x = torch.cat([x,self.notes.unsqueeze(0).repeat(x.shape[0],1,1,1)],dim=1)
+            x = torch.cat([torch.cat([x,repeated_notes[:,i*self.knotes:(i+1)*self.knotes]],dim=1) for i in range(self.num_classes)],dim=1)
+            x = self.bw2col(x)
+            x = self.mv3.features(x) if self.model_arch=="notedmobilenetv3" else self.mv2.features(x)
 
         
         elif self.model_arch=="passt":
@@ -459,6 +562,8 @@ class Task5Model(nn.Module):
             x = self.unet(x)
             x = self.passt(x)[0]
             return x
+        elif self.model_arch=="utoken":
+            return self.unet(x)
         elif self.model_arch == 'RFRNN':
             gru_output = torch.zeros((x.shape[0],1,self.hidden_size)).to(self.device)
             hidden = torch.zeros((self.num_layers,x.shape[0],self.hidden_size)).to(self.device)

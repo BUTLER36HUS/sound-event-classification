@@ -48,6 +48,8 @@ def run(args):
     use_pna = args.use_pna
     sample_rate  = args.sample_rate
     hop_length = args.hop_length
+    num_patchout = args.num_patchout
+    patchout_size = args.patchout_size
     print(f'Using cbam: {use_cbam}')
     print(f'Using pna: {use_pna}')
     print(f'Using mixup: {args.use_mixup}')
@@ -114,7 +116,8 @@ def run(args):
                                  perm=perm,
                                  resize=num_frames,
                                 #  image_transform=albumentations_transform,
-                                 spec_transform=spec_transforms)
+                                #  spec_transform=spec_transforms
+                                )
 
     valid_dataset = AudioDataset(
         workspace, valid_df, feature_type=feature_type, perm=perm, resize=num_frames)
@@ -153,6 +156,8 @@ def run(args):
         model = Task5Model(num_classes, model_arch).to(device)
     elif model_arch == "upasst":
         model = Task5Model(num_classes, model_arch).to(device)
+    elif model_arch == "utoken":
+        model = Task5Model(num_classes, model_arch).to(device)
     print(f'Using {model_arch} model.')
 #     summary(model, (1, n_mels, num_frames))
     wandb.watch(model, log_freq=100)
@@ -173,9 +178,9 @@ def run(args):
     else:
         optimizer = optim.Adam(
             model.parameters(), lr=learning_rate, amsgrad=amsgrad)
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        #     optimizer, patience=patience, verbose=verbose)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-7)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, patience=patience, verbose=verbose)
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-7)
     criterion = nn.CrossEntropyLoss()
 
     train_loss_hist = []
@@ -191,8 +196,8 @@ def run(args):
         starting_epoch = checkpoint['epoch']
 
     optimizer.zero_grad()
-    for i in range(starting_epoch, starting_epoch+epochs):
-        print('Epoch: ', i, 'LR: ', optimizer.param_groups[0]['lr'])
+    for epoch in range(starting_epoch, starting_epoch+epochs):
+        print('Epoch: ', epoch, 'LR: ', optimizer.param_groups[0]['lr'])
 
         this_epoch_train_loss = 0
         this_epoch_train_acc = 0
@@ -206,8 +211,24 @@ def run(args):
                 model = model.train()
                 # print(inputs.shape)
                 # print(inputs)
-                outputs = model(inputs)
-                loss = criterion(outputs, label)
+                # outputs = model(inputs)
+                x = inputs
+                b, c, h, w = x.shape
+                quantized = model(x)
+                masked_x = x.clone().to(device)
+                for i in range(b):
+                    masked_row,masked_col = torch.randint(0, h//patchout_size[0], (num_patchout,), requires_grad=False),torch.randint(0, w//patchout_size[1], (num_patchout,),requires_grad=False)
+                    for _r,_c in zip(masked_row,masked_col):
+                        masked_x[i,_r*patchout_size[0]:(_r+1)*patchout_size[0],_c*patchout_size[1]:(_c+1)*patchout_size[1]] = 0
+                masked_quantized = model(masked_x)
+                loss = torch.zeros(1,).to(device)
+                cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+                for i in range(b):
+                    loss += -torch.log(torch.exp(torch.mean(cos(quantized[i],masked_quantized[i])))/torch.sum(
+                                torch.exp(torch.cat(tuple(torch.mean(cos(quantized[j],masked_quantized[i])).unsqueeze(0) for j in range(b) if i==j or label[i]!=label[j])))))
+                    # loss += torch.log(torch.sum(torch.exp(torch.cat(tuple(torch.mean(cos(quantized[j],quantized[i])) for j in range(b) if i!=j)))))
+                loss/=b
+                # loss = criterion(outputs, label)
                 loss.backward()
                 if batch % grad_acc_steps == 0 or batch % len(train_loader) == 0:
                     if model_arch == 'upasst':
@@ -215,52 +236,71 @@ def run(args):
                         optimizer2.zero_grad()
                     optimizer.step()
                     optimizer.zero_grad()
+                if batch % 100 == 0:
+                    print(f'train loss batch: {batch}, loss: {loss.detach().cpu().numpy()}')
                 this_epoch_train_loss += loss.detach().cpu().numpy()
-                this_epoch_train_acc += ((outputs.argmax(dim=1) == label)*1.0).mean().detach().cpu().numpy()
+                # this_epoch_train_acc += ((outputs.argmax(dim=1) == label)*1.0).mean().detach().cpu().numpy()
         
-        this_epoch_train_acc /= batch
-
-
+        # this_epoch_train_acc /= batch
+        this_epoch_train_loss /= len(train_df)
+        wandb.log({"train":{
+            "loss": this_epoch_train_loss,
+            # "precision": this_epoch_train_acc
+        }})
         batch = 0
         this_epoch_valid_loss = 0
-        this_epoch_valid_acc = 0
+        # this_epoch_valid_acc = 0
         for sample in tqdm(val_loader):
             batch += 1
             inputs = sample['data'].to(device)
             labels = sample['labels'].to(device)
             with torch.set_grad_enabled(False):
                 model = model.eval()
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                x = inputs
+                b, c, h, w = x.shape
+                quantized = model(x)
+                masked_x = x.clone().to(device)
+                for i in range(b):
+                    masked_row,masked_col = torch.randint(0, h//patchout_size[0], (num_patchout,), requires_grad=False),torch.randint(0, w//patchout_size[1], (num_patchout,),requires_grad=False)
+                    for _r,_c in zip(masked_row,masked_col):
+                        masked_x[i,_r*patchout_size[0]:(_r+1)*patchout_size[0],_c*patchout_size[1]:(_c+1)*patchout_size[1]] = 0
+                masked_quantized = model(masked_x)
+                loss = torch.zeros(1,).to(device)
+                cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+                for i in range(b):
+                    loss += -torch.log(torch.exp(torch.mean(cos(quantized[i],masked_quantized[i])))/torch.sum(torch.exp(torch.cat(
+                                            tuple(torch.mean(cos(quantized[j],masked_quantized[i])).unsqueeze(0) for j in range(b) if i==j or label[i]!=label[j])))))
+                    # loss += torch.log(torch.sum(torch.exp(torch.cat(tuple(torch.mean(cos(quantized[j],quantized[i])) for j in range(b) if i!=j)))))
+                loss/=b
+                # outputs = model(inputs)
+                # loss = criterion(outputs, labels)
                 this_epoch_valid_loss += loss.detach().cpu().numpy()
-                this_epoch_valid_acc += ((outputs.argmax(dim=1) == labels)*1.0).mean().detach().cpu().numpy()
+                # this_epoch_valid_acc += ((outputs.argmax(dim=1) == labels)*1.0).mean().detach().cpu().numpy()
 
-        this_epoch_train_loss /= len(train_df)
-        this_epoch_valid_acc /= batch
+
+        # this_epoch_valid_acc /= batch
         this_epoch_valid_loss /= len(valid_df)
-        wandb.log({"train":{
-            "loss": this_epoch_train_loss,
-            "precision": this_epoch_train_acc
-        }})
+
         wandb.log({"validation":{
             "loss": this_epoch_valid_loss,
-            "precision": this_epoch_valid_acc
+            # "precision": this_epoch_valid_acc
         }})
-        print(
-            f"train_loss = {this_epoch_train_loss}, val_loss={this_epoch_valid_loss}, precision={this_epoch_valid_acc}")
+        # print(f"train_loss = {this_epoch_train_loss}, val_loss={this_epoch_valid_loss}, precision={this_epoch_valid_acc}")
+        print(f"train_loss = {this_epoch_train_loss}, val_loss={this_epoch_valid_loss}")
         train_loss_hist.append(this_epoch_train_loss)
         valid_loss_hist.append(this_epoch_valid_loss)
 
-        if this_epoch_valid_loss < lowest_val_loss:
-            lowest_val_loss = this_epoch_valid_loss
+        # if this_epoch_valid_loss < lowest_val_loss:
+        #     lowest_val_loss = this_epoch_valid_loss
         # if this_epoch_valid_acc>higest_val_acc:
         #     higest_val_acc = this_epoch_valid_acc
+        if True:
             torch.save({
-                'epoch': i,
+                'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict()
             }, model_path)
-            print(f'Saving model state at epoch: {i}.')
+            print(f'Saving model state at epoch: {epoch}.')
             epochs_without_new_lowest = 0
         else:
             epochs_without_new_lowest += 1
@@ -270,8 +310,8 @@ def run(args):
 
         if model_arch == 'upasst':
             scheduler2.step(i)
-        # scheduler.step(this_epoch_valid_loss)
-        scheduler.step(epoch=i)
+        scheduler.step(this_epoch_valid_loss)
+        # scheduler.step(epoch=i)
 
 
 if __name__ == "__main__":
@@ -303,12 +343,18 @@ if __name__ == "__main__":
     parser.add_argument('-hop', '--hop_length', type=int,
                         help="Specifies hop length of the spectrogram.", default=hop_length)
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
+    parser.add_argument('-num_p','--num_patchout', type=int, default=0)
+    parser.add_argument('-psize','--patchout_size', type=tuple, default=(8,8))
+    parser.add_argument('-batch','--batch_size', type=int, default=batch_size)
+    parser.add_argument('-epoch','--epochs', type=int, default=epochs)
     args = parser.parse_args()
 
 
     sample_rate = args.sample_rate
     hop_length = args.hop_length
     learning_rate = args.learning_rate
+    batch_size = args.batch_size
+    epochs = args.epochs
     logging.getLogger().setLevel(logging.ERROR)
 
     run(args)

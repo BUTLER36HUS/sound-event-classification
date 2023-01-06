@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, f1_score, accuracy_score
 import argparse
-from utils import AudioDataset, Task5Model, configureTorchDevice, getSampleRateString
+from utils import AudioDataset, Task5Model, configureTorchDevice, getSampleRateString, BalancedBatchSampler
 from config import target_names, feature_type, num_frames, permutation, batch_size, num_workers, num_classes, sample_rate, workspace, use_cbam, seed, use_resampled_data,hop_length
 from glob import glob
 
@@ -27,7 +27,7 @@ for i, target in enumerate(target_names):
     class_mapping[target] = i
 
 
-def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_name):
+def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_name, args):
 
     if use_resampled_data:
 
@@ -52,10 +52,12 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
         #     file_list, train_size=0.8, random_state=seed)
         # train_list, val_list = sklearn.model_selection.train_test_split(
         #     train_list, train_size=0.9, random_state=seed)
+        print(len(train_list), len(val_list), len(test_list))
 
         train_df = pd.DataFrame(train_list)
         valid_df = pd.DataFrame(val_list)
         test_df = pd.DataFrame(test_list)
+        # test_df = valid_df
     else:
         folds = []
         for i in range(5):
@@ -79,7 +81,7 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
     device = configureTorchDevice()
 
     # Instantiate the model
-    model = Task5Model(num_classes, model_arch, use_cbam=use_cbam).to(device)
+    model = Task5Model(num_classes, model_arch, use_cbam=use_cbam, dataset=train_dataset, dataset_sampler=BalancedBatchSampler(train_df),knotes=args.knotes,process_notes=args.process_notes).to(device)
     model_path = '{}/model/{}/{}/model_{}_{}_{}_use_cbam_{}'.format(workspace, expt_name, getSampleRateString(
         sample_rate), feature_type, str(perm[0])+str(perm[1])+str(perm[2]), model_arch, use_cbam)
     model.load_state_dict(torch.load(model_path)['model_state_dict'])
@@ -117,7 +119,7 @@ def run(workspace, feature_type, num_frames, perm, model_arch, use_cbam, expt_na
     y_pred_new = []
 
     for i, (yt, yp) in enumerate(zip(y_true, y_pred)):
-        if yt != 9:
+        if yt != 1:
             y_true_new.append(yt)
             y_pred_new.append(yp)
 
@@ -150,8 +152,10 @@ if __name__ == "__main__":
                         help="Specifies sample rates of the spectrogram.", default=sample_rate)
     parser.add_argument('-hop', '--hop_length', type=int,
                         help="Specifies hop length of the spectrogram.", default=hop_length)
+    parser.add_argument('-kn','--knotes',type=int,default=1)
+    parser.add_argument('-pnotes','--process_notes',type=bool,default=False)
     args = parser.parse_args()
     sample_rate = args.sample_rate
     hop_length = args.hop_length
     run(args.workspace, args.feature_type, args.num_frames,
-        args.permutation, args.model_arch, args.use_cbam, args.expt_name)
+        args.permutation, args.model_arch, args.use_cbam, args.expt_name,args)

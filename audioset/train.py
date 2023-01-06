@@ -153,6 +153,11 @@ def run(args):
         model = Task5Model(num_classes, model_arch).to(device)
     elif model_arch == "upasst":
         model = Task5Model(num_classes, model_arch).to(device)
+    elif model_arch == "notedmobilenetv3" or model_arch == "notedmobilenetv2":
+        model = Task5Model(num_classes, model_arch, use_cbam=use_cbam,
+                            dataset=train_dataset,dataset_sampler=train_loader.sampler,
+                            knotes=args.knotes,process_notes=args.process_notes
+                        ).to(device)
     print(f'Using {model_arch} model.')
 #     summary(model, (1, n_mels, num_frames))
     wandb.watch(model, log_freq=100)
@@ -172,7 +177,7 @@ def run(args):
         scheduler2 = optim.lr_scheduler.CosineAnnealingLR(optimizer2, T_max=epochs, eta_min=1e-7)
     else:
         optimizer = optim.Adam(
-            model.parameters(), lr=learning_rate, amsgrad=amsgrad)
+            model.parameters(), lr=learning_rate, amsgrad=amsgrad, weight_decay=args.weight_decay)
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, patience=patience, verbose=verbose)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-7)
@@ -182,7 +187,7 @@ def run(args):
     valid_loss_hist = []
     lowest_val_loss = np.inf
     epochs_without_new_lowest = 0
-    higest_val_acc = -np.inf
+    higest_val_acc = -1
     if resume_training and os.path.exists(model_path):
         print(f'resume_training = {resume_training} using path {model_path}')
         checkpoint = torch.load(model_path)
@@ -251,15 +256,22 @@ def run(args):
         train_loss_hist.append(this_epoch_train_loss)
         valid_loss_hist.append(this_epoch_valid_loss)
 
-        if this_epoch_valid_loss < lowest_val_loss:
-            lowest_val_loss = this_epoch_valid_loss
-        # if this_epoch_valid_acc>higest_val_acc:
-        #     higest_val_acc = this_epoch_valid_acc
+        if this_epoch_valid_loss < lowest_val_loss or this_epoch_valid_acc>higest_val_acc:
             torch.save({
                 'epoch': i,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict()
-            }, model_path)
+            }, model_path+("_loss" if this_epoch_valid_acc<higest_val_acc else "" ))
+            print(f'Saving model state at epoch: {i}.')
+            lowest_val_loss = this_epoch_valid_loss
+            epochs_without_new_lowest = 0
+        # if this_epoch_valid_acc>higest_val_acc:
+            higest_val_acc = this_epoch_valid_acc
+            # torch.save({
+            #     'epoch': i,
+            #     'model_state_dict': model.state_dict(),
+            #     'optimizer_state_dict': optimizer.state_dict()
+            # }, model_path)
             print(f'Saving model state at epoch: {i}.')
             epochs_without_new_lowest = 0
         else:
@@ -303,12 +315,20 @@ if __name__ == "__main__":
     parser.add_argument('-hop', '--hop_length', type=int,
                         help="Specifies hop length of the spectrogram.", default=hop_length)
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
+    parser.add_argument('-batch','--batch_size', type=int, default=batch_size)
+    parser.add_argument('-epoch','--epochs', type=int, default=epochs)
+    parser.add_argument('-kn','--knotes',type=int,default=1)
+    parser.add_argument('-l2','--weight_decay',type=float,default=0)
+    parser.add_argument('-dp','--dropout',type=float,default=0)
+    parser.add_argument('-pnotes','--process_notes',type=bool,default=False)
     args = parser.parse_args()
 
 
     sample_rate = args.sample_rate
     hop_length = args.hop_length
     learning_rate = args.learning_rate
+    batch_size = args.batch_size
+    epochs = args.epochs
     logging.getLogger().setLevel(logging.ERROR)
 
     run(args)
