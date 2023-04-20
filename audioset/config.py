@@ -8,23 +8,51 @@ __maintainer__ = "Soham Tiwari"
 __email__ = "soham.tiwari800@gmail.com"
 __status__ = "Development"
 
-use_resampled_data = True
 
-model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3", "passt", "upasst","utoken","notedmobilenetv3", "notedmobilenetv2"]
+combined_speech_scream = True
+# use_resampled_data = True
+use_resampled_data = False
+use_raw_wav = True
+
+model_archs = ['mobilenetv2', 'pann_cnn10', 'pann_cnn14', "mobilenetv3",
+                "resnet18","resnet34","resnet50","resnet101","resnet152","multimobilenetv3", "multimobilenetv2",
+                "multipool_resnet18","multipool_resnet34","multipool_resnet50","multipool_resnet101","multipool_resnet152",
+                "CLAP"]
 class_mapping = {}
-if use_resampled_data:
+
+if combined_speech_scream:
+    class_mapping['breaking'] = 0
+    class_mapping['crowd_scream'] = 1
+    class_mapping['crowd'] = 1
+    class_mapping['CrowdOrScream'] = 1
+    class_mapping['crying_sobbing'] = 2
+    class_mapping['crying'] = 2
+    class_mapping['explosion'] = 3
+    class_mapping['gunshot_gunfire'] = 4
+    class_mapping['gunshot'] = 4
+    class_mapping['motor_vehicle_road'] = 5
+    class_mapping['motor'] = 5
+    class_mapping['siren'] = 6
+    class_mapping['speech']=7
+    # class_mapping['others']= 9
+    class_mapping['silence']= 8
+elif use_resampled_data:
     class_mapping['Breaking'] = 0
     class_mapping['Crowd'] = 1
+    class_mapping['CrowdOrScream'] = 1
     class_mapping['Crying, sobbing'] = 2
     class_mapping['Explosion'] = 3
     class_mapping['Gunshot, gunfire'] = 4
     class_mapping['Motor vehicle (road)'] = 5
-    class_mapping['Screaming'] = 6
     class_mapping['Siren'] = 7
-    class_mapping['Male speech']=8
-    class_mapping['Female speech']=9
+    class_mapping['Speech']=8
+    class_mapping['Screaming'] = 6
+    # class_mapping['Siren'] = 7
+    # class_mapping['Speech']=8
+    # class_mapping['Male speech']=8
+    # class_mapping['Female speech']=8
     # class_mapping['Silent']=8
-    # class_mapping['Male speech']=9
+    class_mapping['Male speech']=9
     # class_mapping['Female speech']=10
 else:
     class_mapping['breaking'] = 0
@@ -76,7 +104,7 @@ workspace = '/notebooks/sound-event-classification/audioset'
 # target_names = ['breaking', 'chatter', 'crying_sobbing', 'emergency_vehicle',
 #                 'explosion', 'gunshot_gunfire', 'motor_vehicle_road', 'screaming', 'siren', 'others']
 target_names = list(class_mapping.keys())
-num_classes = len(target_names)
+num_classes = max(class_mapping.values())+1
 # for balancedbatchsampler, for every batch to have equal number of samples, the size of each batch should be a multiple of the num of classes
 batch_size = 16
 grad_acc_steps = 1

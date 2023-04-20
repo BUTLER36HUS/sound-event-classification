@@ -17,10 +17,15 @@ from pann_encoder import Cnn10, Cnn14
 from ParNetAttention import ParNetAttention
 from dynamic_convolutions import Dynamic_conv2d
 import os
+from pathlib import Path
+
+import laion_clap
 
 from model.passt.passt import PaSST
 from model.unet.unet_model import UNet
 from model.utoken import UToken
+from model.multipool.resnet import ResNet,BasicBlock,Bottleneck
+from model.multipool.multipool_resnet import MultiPool_Resnet,ExponentialLayer
 
 __author__ = "Andrew Koh Jin Jie, Yan Zhen"
 __credits__ = ["Prof Chng Eng Siong", "Yan Zhen",
@@ -59,7 +64,7 @@ def getLabelFromFilename(file_name: str) -> int:
     Returns:
         int: integer label for the audio file name
     """
-    label = class_mapping[file_name.split('-')[0]]
+    label = class_mapping[file_name.split('-')[0].split("_")[0]]
     return label
 
 
@@ -167,6 +172,46 @@ class AudioDataset(Dataset):
         data = {}
         data['data'], data['labels'], data['file_name'] = sample, labels, file_name
         return data
+    
+
+class AudioWavDataset(Dataset):
+
+
+
+    def __init__(self, workspace, df, usage:str='train'):
+
+
+        self.workspace = workspace
+        self.df = df
+        self.filenames = df[0].unique()
+        self.length = len(self.filenames)
+        self.sample_rate = sample_rate
+        self.hop_length = hop_length
+
+        self.usage = usage
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, idx):
+        if idx<self.length:
+            file_name = getFileNameFromDf(self.df, idx)
+            labels = getLabelFromFilename(file_name)
+
+        else:
+            temp = idx
+            file_names = []
+            while temp>0:
+                file_names.append(getFileNameFromDf(self.df,temp%self.length))
+                temp = temp//self.length
+            labels = getLabelFromFilename(file_names[0])
+            file_name = file_names[np.random.randint(len(file_names))]
+            
+        sample = np.load(os.path.join(self.workspace, self.usage+"_embed", file_name+'.wav.npy'))[0]
+
+        data = {}
+        data['data'], data['labels'], data['file_name'] = sample, labels, file_name
+        return data
 
 
 class BalancedBatchSampler(torch.utils.data.sampler.Sampler):
@@ -219,13 +264,6 @@ class BalancedBatchSampler(torch.utils.data.sampler.Sampler):
 
     def __len__(self):
         return self.balanced_max*len(self.keys)
-
-    def naive_mixup(self,label, mix_num, raw_length):
-        raws = self.dataset[label][:raw_length]
-        gradients = np.choice(raws, size=mix_num*(raw_length**mix_num)).reshape(mix_num, -1)
-        idx_factors = (self.length**np.arange(mix_num)).reshape(mix_num, 1)
-        idxs = np.sum(gradients*idx_factors, axis=0)+self.length
-        return idxs
 
 
 
@@ -460,69 +498,115 @@ class Task5Model(nn.Module):
                 nn.Linear(256, num_classes))
 
 
-        if model_arch=="passt" or model_arch=="upasst":
-            self.passt = PaSST(
-                num_classes=num_classes,
-                # img_size = (128,1757),
-                # u_patchout=2300,
-                img_size= (128, 638),
-                u_patchout=100,
-                # s_patchout_f=4,
-                stride=10,
-                drop_rate=0.1,
-                )
-        
-        if model_arch=="upasst":
-            print("Using Unet")
-            self.unet = UNet(1,1)
-
-        
-        if model_arch == "utoken":
-            self.unet = UToken(1,1)
-        
-        if model_arch=="rfrnn":
-            self.hidden_size = hidden_size = 128
-            self.input_size = input_size = 128
-            self.num_layers = num_layers = 4
-            self.attn = nn.Sequential(
-                nn.Linear(hidden_size,(hidden_size+input_size)*2),
-                nn.Sigmoid(),
-                nn.ReLU(),
-                nn.Linear((hidden_size+input_size)*2,input_size),
-                nn.Sigmoid()
+        if model_arch.startswith("resnet"):
+            self.exp_layer = ExponentialLayer()
+            self.pools = (
+                nn.Identity(),
+                self.exp_layer,
+                nn.AvgPool2d((5,3),stride=(1,1),padding=(2,1)),
+                nn.AvgPool2d((7,3),stride=(1,1),padding=(3,1)),
+                nn.AvgPool2d((7,5),stride=(1,1),padding=(3,2)),
+                nn.MaxPool2d((5,3),stride=(1,1),padding=(2,1)),
+                nn.MaxPool2d((7,3),stride=(1,1),padding=(3,1)),
+                nn.MaxPool2d((7,5),stride=(1,1),padding=(3,2)),
             )
-            self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=False)
+            input_channels = len(self.pools)
+            self.bw2col = nn.Sequential(
+                Dynamic_conv2d(input_channels, input_channels, 1, padding=0),
+                nn.BatchNorm2d(input_channels),
+                nn.Dropout(dropout),
+                Dynamic_conv2d(input_channels, 3, 1, padding=0),
+                nn.BatchNorm2d(3),
+                nn.Identity()
+            )
+            self.resnet = torch.hub.load('pytorch/vision:v0.10.0', model_arch)
             self.mlp = nn.Sequential(
                 # nn.Linear(hidden_size*gru_layers, hidden_size*2),
-                nn.Sigmoid(),
-                nn.Linear(hidden_size, hidden_size*2),
+                # nn.Linear(1000, 1024),
+                # nn.ReLU(),
+                # nn.Dropout(dropout),
+                # nn.Linear(1024,512),
+                nn.Linear(1000,512),
+                nn.BatchNorm1d(512),
+                # nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(512, 256),
                 nn.ReLU(),
-                nn.Linear(hidden_size*2, hidden_size*2),
-                nn.ReLU(),
-                nn.Linear(hidden_size*2, num_classes),
-                #nn.Softmax(dim=1)
+                nn.Dropout(dropout),
+                nn.Linear(256, num_classes),
             )
-            # self.rnns = ({
-            #     'attn': nn.Sequential(
-            #         nn.Linear(hidden_size,(hidden_size+input_size)*2),
-            #         nn.Sigmoid(),
-            #         nn.ReLU(),
-            #         nn.Linear((hidden_size+input_size)*2,input_size),
-            #         nn.Sigmoid()
-            #     ),
-            #     'rnn': nn.GRU(input_size=input_size, hidden_size=hidden_size, 
-            #         num_layers=num_layers, batch_first=True, bidirectional=False),
-            #     'mlp': nn.Sequential(
-            #         # nn.Linear(hidden_size*gru_layers, hidden_size*2),
-            #         nn.Linear(hidden_size, hidden_size*2),
-            #         nn.Tanh(),
-            #         nn.ReLU(),
-            #         nn.Linear(hidden_size*2, hidden_size*2),
-            #         nn.ReLU(),
-            #         nn.Linear(hidden_size*2, 2),
-            #         #nn.Softmax(dim=1)
-            #     )} for _ in range(num_classes)
-            # )
+
+        if model_arch == "multimobilenetv3":
+            self.exp_layer = ExponentialLayer()
+            self.pools = (
+                nn.Identity(),
+                self.exp_layer,
+                nn.AvgPool2d((5,3),stride=(1,1),padding=(2,1)),
+                nn.AvgPool2d((7,3),stride=(1,1),padding=(3,1)),
+                nn.AvgPool2d((7,5),stride=(1,1),padding=(3,2)),
+                nn.MaxPool2d((5,3),stride=(1,1),padding=(2,1)),
+                nn.MaxPool2d((7,3),stride=(1,1),padding=(3,1)),
+                nn.MaxPool2d((7,5),stride=(1,1),padding=(3,2)),
+            )
+            input_channels = len(self.pools)
+            self.bw2col = nn.Sequential(
+                Dynamic_conv2d(input_channels, input_channels, 1, padding=0),
+                nn.BatchNorm2d(input_channels),
+                nn.Dropout(dropout),
+                Dynamic_conv2d(input_channels, 3, 1, padding=0),
+                nn.BatchNorm2d(3),
+            )
+            self.mv3 = torchvision.models.mobilenet_v3_large(pretrained=True)
+
+            if self.use_cbam:
+                self.cbam = CBAMBlock(
+                    channel=960, reduction=cbam_reduction_factor, kernel_size=cbam_kernel_size)
+
+            self.final = nn.Sequential(
+                nn.Linear(960, 512), nn.ReLU(), nn.Dropout(dropout), nn.BatchNorm1d(512),
+                nn.Linear(512, num_classes))
+            
+        if model_arch == "multimobilenetv2":
+            self.exp_layer = ExponentialLayer()
+            self.pools = (
+                nn.Identity(),
+                self.exp_layer,
+                nn.AvgPool2d((5,3),stride=(1,1),padding=(2,1)),
+                nn.AvgPool2d((7,3),stride=(1,1),padding=(3,1)),
+                nn.AvgPool2d((7,5),stride=(1,1),padding=(3,2)),
+                nn.MaxPool2d((5,3),stride=(1,1),padding=(2,1)),
+                nn.MaxPool2d((7,3),stride=(1,1),padding=(3,1)),
+                nn.MaxPool2d((7,5),stride=(1,1),padding=(3,2)),
+            )
+            input_channels = len(self.pools)
+            self.bw2col = nn.Sequential(
+                Dynamic_conv2d(input_channels, input_channels, 1, padding=0),
+                nn.BatchNorm2d(input_channels),
+                nn.Dropout(dropout),
+                Dynamic_conv2d(input_channels, 3, 1, padding=0),
+                nn.BatchNorm2d(3),
+            )
+            self.mv2 = torchvision.models.mobilenet_v2(pretrained=True)
+
+            if self.use_cbam:
+                self.cbam = CBAMBlock(
+                    channel=1280, reduction=cbam_reduction_factor, kernel_size=cbam_kernel_size)
+
+            self.final = nn.Sequential(
+                nn.Linear(1280, 512), nn.ReLU(), nn.Dropout(dropout), nn.BatchNorm1d(512), 
+                nn.Linear(512, num_classes))
+
+        if model_arch == "CLAP":
+            # self.CLAP = laion_clap.CLAP_Module(enable_fusion=False)
+            # self.CLAP.load_ckpt() # download the default pretrained checkpoint.
+            self.mlp = nn.Sequential(
+                nn.Linear(512,256),
+                nn.BatchNorm1d(256),
+                nn.LeakyReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(256, num_classes),
+            )
+
 
 
 
@@ -535,6 +619,16 @@ class Task5Model(nn.Module):
             x = self.bw2col(x)  # -> (batch_size, 3, n_mels, num_frames)
             x = self.mv3.features(x)
 
+        elif self.model_arch == 'multimobilenetv3':
+            x = torch.cat([pool(x) for pool in self.pools],dim=1)
+            x = self.bw2col(x)  # -> (batch_size, 3, n_mels, num_frames)
+            x = self.mv3.features(x)
+
+        elif self.model_arch == 'multimobilenetv2':
+            x = torch.cat([pool(x) for pool in self.pools],dim=1)
+            x = self.bw2col(x)
+            x = self.mv2.features(x)
+
         elif self.model_arch == 'pann_cnn10' or self.model_arch == 'pann_cnn14':
             x = x  # -> (batch_size, 1, n_mels, num_frames)
             x = x.permute(0, 1, 3, 2)  # -> (batch_size, 1, num_frames, n_mels)
@@ -544,42 +638,16 @@ class Task5Model(nn.Module):
             x = self.encoder(x)
             x = self.pann_head(x)
 
-        elif self.model_arch == "notedmobilenetv3" or self.model_arch=="notedmobilenetv2":
-            repeated_notes = self.notes
-            if self.process_notes==True:
-                repeated_notes = self.note_processer(repeated_notes)
-            repeated_notes = repeated_notes.unsqueeze(0).repeat(x.shape[0],1,1,1)
-            # x = torch.cat([x,self.notes.unsqueeze(0).repeat(x.shape[0],1,1,1)],dim=1)
-            x = torch.cat([torch.cat([x,repeated_notes[:,i*self.knotes:(i+1)*self.knotes]],dim=1) for i in range(self.num_classes)],dim=1)
-            x = self.bw2col(x)
-            x = self.mv3.features(x) if self.model_arch=="notedmobilenetv3" else self.mv2.features(x)
-
         
-        elif self.model_arch=="passt":
-            x = self.passt(x)[0]
+        elif self.model_arch == 'CLAP':
+            x = self.mlp(x)
             return x
-        elif self.model_arch=="upasst":
-            x = self.unet(x)
-            x = self.passt(x)[0]
-            return x
-        elif self.model_arch=="utoken":
-            return self.unet(x)
-        elif self.model_arch == 'RFRNN':
-            gru_output = torch.zeros((x.shape[0],1,self.hidden_size)).to(self.device)
-            hidden = torch.zeros((self.num_layers,x.shape[0],self.hidden_size)).to(self.device)
-            attn_norms = torch.zeros((1)).squeeze().to(self.device)
-            x = x.squeeze().to(self.device)
-            for t in range(x.shape[-1]):
-                attn_weights = self.attn(hidden[-1])
-                # attn_weights = self.attn(torch.cat([hidden[-1],x[:,:,t]],dim=1))
-                # attn_output = torch.bmm(attn_weights,x[:,:,t].unsqueeze(1))
-                attn_output = attn_weights.unsqueeze(1)*x[:,:,t].unsqueeze(1)
-                attn_norms += torch.norm(attn_weights)
-                gru_output,hidden  = self.gru(attn_output,hidden)
-            y_hat = self.mlp(gru_output.squeeze())
-            return y_hat
-            # return y_hat.squeeze(), hidden, attn_norms     
 
+        elif self.model_arch.startswith("resnet"):
+            x = torch.cat([pool(x) for pool in self.pools],dim=1)
+            x = self.bw2col(x)  # -> (batch_size, 3, n_mels, num_frames)
+            x = self.resnet(x)
+            return self.mlp(x)
         # x-> (batch_size, 1280/512, H, W)
         # x = x.max(dim=-1)[0].max(dim=-1)[0] # change it to mean
         if self.use_cbam:
