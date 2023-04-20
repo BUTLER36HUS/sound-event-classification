@@ -17,7 +17,7 @@ import laion_clap
 
 
 number_of_files_success = 0
-logger.add(f'compute_logmel_sr={sample_rate}.log')
+logger.add(f'compute_CLAP_sr={sample_rate}.log')
 
 @logger.catch
 def remove_codec_substr(filename: str, remove_codec_from_filename: bool = True):
@@ -54,16 +54,6 @@ def compute_melspec(filename, outdir):
 
 @logger.catch
 def main(input_path, output_path):
-    logger.info(f"PARAMS:")
-    logger.info(f"n_fft = {n_fft}")
-    logger.info(f"hop_length = {hop_length}")
-    logger.info(f"n_mels = {n_mels}")
-    logger.info(f"fmin = {fmin}")
-    logger.info(f"fmax = {fmax}")
-    logger.info(f"sample_rate = {sample_rate}")
-    logger.info(f"num_cores = {num_cores}")
-    logger.info(f"remove_codec_from_filename = {remove_codec_from_filename}")
-    logger.info(f'Starting computing logmels using above params.')
     file_list = glob(input_path + '/*.wav')
     output_path = os.path.join(output_path)
     os.makedirs(output_path, exist_ok=True)
@@ -72,7 +62,7 @@ def main(input_path, output_path):
             x, output_path))(x)
         for x in tqdm(file_list))
     global number_of_files_success
-    logger.success(f'Finished computing logmels using sr = {sample_rate}, total successfully converted to logmels = {number_of_files_success}')
+    logger.success(f'Finished computing CLAP embedding using sr = {sample_rate}, total successfully converted to embedding = {number_of_files_success}')
 
 
 if __name__ == '__main__':
